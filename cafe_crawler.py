@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 # ==========================================
 # 1. 설정 (Configuration)
 # ==========================================
-INITIAL_FULL_SCAN = False 
+INITIAL_FULL_SCAN = True 
 
 today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -89,7 +89,7 @@ async def fetch_article_detail(session, cafe_name, cafe_id, menu_id, aid):
             
             formatted_comments = []
             for i, text in enumerate(raw_comments, 1):
-                formatted_comments.append(f"[댓글{i}]\n {text}\n")
+                formatted_comments.append(f"[댓글{i}] {text}")
             
             write_ts = art.get('writeDate', 0)
             post_datetime = datetime.fromtimestamp(write_ts/1000).strftime("%Y-%m-%d %H:%M:%S")
