@@ -89,7 +89,7 @@ async def fetch_article_detail(session, cafe_name, cafe_id, menu_id, aid):
             
             formatted_comments = []
             for i, text in enumerate(raw_comments, 1):
-                formatted_comments.append(f"[댓글{i}] {text}")
+                formatted_comments.append(f"[댓글{i}]\n {text}\n")
             
             write_ts = art.get('writeDate', 0)
             post_datetime = datetime.fromtimestamp(write_ts/1000).strftime("%Y-%m-%d %H:%M:%S")
