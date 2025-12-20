@@ -8,7 +8,8 @@ import time
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 from oauth2client.service_account import ServiceAccountCredentials
-
+from dotenv import load_dotenv 
+load_dotenv()
 # 경고 무시
 warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
@@ -31,7 +32,7 @@ cafes_to_scrape = {"토마스": 17175596, "수만휘": 10197921, "로물콘": 28
 boards_to_scrape = {17175596: [0], 10197921: [0], 28699715: [0]}
 
 GCP_SERVICE_KEY = "naver_cralwer_service_key.json"
-googlesheet_url = "https://docs.google.com/spreadsheets/d/18rnWqPzVJq-jVxDUrXMYCcNCgOyEFuHJMmUH0RZvNME/edit?gid=0#gid=0"
+googlesheet_url = "https://docs.google.com/spreadsheets/d/1vXco0waE_iBVhmXUqMe7O56KKSjY6bn4MiC3btoAPS8/edit?gid=0#gid=0"
 
 # ==========================================
 # 2. 구글 시트 연결
@@ -160,10 +161,7 @@ async def scan_board(session, cafe_name, cafe_id, menu_id, start_dt, end_dt):
 # ==========================================
 async def main():
     print(f"\n[Start] 수집 기간: {start_date_target} ~ {end_date_target}")
-    
-    # [변경점] 환경변수에서 쿠키 로드
-    my_cookie = os.getenv("NAVER_COOKIE_STRING")
-    
+    my_cookie = os.getenv("NAVER_COOKIE_STRING")    
     if not my_cookie:
         print("[Critical] 쿠키가 없습니다. Github Secrets(NAVER_COOKIE_STRING) 설정을 확인하세요.")
         return
