@@ -2,9 +2,8 @@ name: Naver Cafe Crawler
 
 on:
   schedule:
-    # 한국 시간(KST) 매일 00:00 (자정) 실행 
-    # UTC 기준 15:00 (전날 오후 3시)
-    - cron: "0 15 * * *"
+    # 한국 시간(KST) 매일 00:05 (자정) 실행 
+    - cron: "5 15 * * *"
   workflow_dispatch:
 
 jobs:

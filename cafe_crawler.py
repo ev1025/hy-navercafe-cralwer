@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 # ==========================================
 # 1. 설정
 # ==========================================
-INITIAL_FULL_SCAN = True 
+INITIAL_FULL_SCAN = False  # False = 어제꺼 수집(매일용) / True = 기간 정해서 수집
 FORCE_COLLECT = True  # 중복 무시 수집
 
 KST = timezone(timedelta(hours=9))
