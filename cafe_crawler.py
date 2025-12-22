@@ -5,28 +5,42 @@ import gspread
 import pandas as pd
 import warnings
 import time
-from datetime import datetime, timedelta
+import random
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv 
+
 load_dotenv()
-# 경고 무시
 warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
 # ==========================================
-# 1. 설정 (Configuration)
+# 1. 설정
 # ==========================================
 INITIAL_FULL_SCAN = True 
+FORCE_COLLECT = True  # 중복 무시 수집
 
-today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+KST = timezone(timedelta(hours=9))
+
+def get_timestamp(year, month, day, hour=0, minute=0, second=0):
+    dt = datetime(year, month, day, hour, minute, second, tzinfo=KST)
+    return dt.timestamp()
+
+now_kst = datetime.now(timezone.utc).astimezone(KST)
+today_midnight_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
 
 if INITIAL_FULL_SCAN:
-    start_date_target = datetime(2025, 12, 18)
-    end_date_target = today - timedelta(seconds=1)
+    # 21일 00:00:00 ~ 23:59:59 KST
+    START_TS = get_timestamp(2025, 12, 21, 0, 0, 0)
+    END_TS = get_timestamp(2025, 12, 21, 23, 59, 59)
 else:
-    # [데일리 모드] 어제 00:00:00 ~ 어제 23:59:59
-    start_date_target = today - timedelta(days=1)
-    end_date_target = today - timedelta(seconds=1)
+    yesterday = today_midnight_kst - timedelta(days=1)
+    START_TS = yesterday.timestamp()
+    END_TS = (today_midnight_kst - timedelta(seconds=1)).timestamp()
+
+print(f"==================================================")
+print(f"[설정 확인] 수집 범위 (KST): {datetime.fromtimestamp(START_TS, KST)} ~ {datetime.fromtimestamp(END_TS, KST)}")
+print(f"==================================================\n")
 
 cafes_to_scrape = {"토마스": 17175596, "수만휘": 10197921, "로물콘": 28699715}
 boards_to_scrape = {17175596: [0], 10197921: [0], 28699715: [0]}
@@ -44,62 +58,45 @@ def get_raw_sheet():
         client = gspread.authorize(creds)
         return client.open_by_url(googlesheet_url).worksheet("원본데이터")
     except Exception as e:
-        print(f"[Error] 구글 시트 연결 실패: {e}")
-        return None
+        print(f"[Error] 구글 시트 연결 실패: {e}"); return None
 
-print("\n[Init] 구글 시트 연결 및 중복 데이터 로딩 중...")
 raw_sheet = get_raw_sheet()
-
-limit_dup = (datetime.now() - timedelta(days=5)).date()
 existing_posts = set()
-
-if raw_sheet:
+if raw_sheet and not FORCE_COLLECT:
     try:
         all_data = raw_sheet.get_all_records()
         for row in all_data:
-            try:
-                raw_date = str(row['날짜'])
-                row_date = datetime.strptime(raw_date[:10], "%Y-%m-%d").date()
-                if row_date >= limit_dup:
-                    existing_posts.add((row['사이트'], str(row['게시글번호'])))
-            except (ValueError, KeyError, IndexError):
-                continue
-        print(f"[Init] 기존 데이터 {len(existing_posts)}건 로드 완료 (기준: {limit_dup} 이후).")
-    except Exception as e:
-        print(f"[Init] 기존 데이터 로드 중 오류 (첫 실행이면 무시): {e}")
+            existing_posts.add((str(row.get('사이트','')).strip(), str(row.get('게시글번호','')).strip()))
+    except: pass
 
 # ==========================================
 # 3. 데이터 수집 함수
 # ==========================================
-async def fetch_article_detail(session, cafe_name, cafe_id, menu_id, aid):
+async def fetch_article_detail(session, cafe_name, cafe_id, aid):
     url = f"https://article.cafe.naver.com/gw/v3/cafes/{cafe_id}/articles/{aid}?useCafeId=true&requestFrom=A"
     try:
-        async with session.get(url, timeout=10) as resp:
+        # 타임아웃을 넉넉히 주어 연결 끊김 방지
+        async with session.get(url, timeout=20) as resp:
+            if resp.status == 429: # 너무 많은 요청
+                return "RETRY"
             if resp.status != 200: return None
+            
             data = await resp.json(content_type=None)
             res = data.get('result', {})
             art = res.get('article', {})
+            if not art: return None
             
             html = art.get('contentHtml') or res.get('scrap', {}).get('contentHtml', '')
-            parser = 'lxml' if 'lxml' in globals() else 'html.parser'
-            content = BeautifulSoup(html, parser).get_text(strip=True, separator='\n') if html else ""
+            content = BeautifulSoup(html, 'html.parser').get_text(strip=True, separator='\n')
+            comments = [BeautifulSoup(c.get('content', ''), 'html.parser').get_text(strip=True, separator='\n') 
+                        for c in res.get('comments', {}).get('items', []) if c.get('content')]
             
-            raw_comments = [BeautifulSoup(c.get('content', ''), parser).get_text(strip=True, separator='\n') 
-                            for c in res.get('comments', {}).get('items', []) if c.get('content')]
-            
-            formatted_comments = []
-            for i, text in enumerate(raw_comments, 1):
-                formatted_comments.append(f"[댓글{i}] {text}")
-            
-            write_ts = art.get('writeDate', 0)
-            post_datetime = datetime.fromtimestamp(write_ts/1000).strftime("%Y-%m-%d %H:%M:%S")
+            write_ts = art.get('writeDate', 0) 
+            post_date = datetime.fromtimestamp(write_ts/1000, KST).strftime("%Y-%m-%d %H:%M:%S")
 
             return {
-                '사이트': cafe_name,
-                '날짜': post_datetime,
-                '제목': art.get('subject', '제목 없음'),
-                '본문': content,
-                '댓글': "\n".join(formatted_comments),
+                '사이트': cafe_name, '날짜': post_date, '제목': art.get('subject', '제목 없음'),
+                '본문': content, '댓글': "\n".join([f"[댓글{i+1}]\n{t}\n" for i, t in enumerate(comments)]),
                 '게시글번호': int(aid)
             }
     except: return None
@@ -107,147 +104,96 @@ async def fetch_article_detail(session, cafe_name, cafe_id, menu_id, aid):
 async def fetch_board_page(session, cafe_id, menu_id, page):
     url = f"https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/{cafe_id}/menus/{menu_id}/articles?page={page}&sortBy=TIME"
     try:
-        async with session.get(url, timeout=5) as resp:
-            if resp.status != 200: return []
-            data = await resp.json()
-            return data.get('result', {}).get('articleList', [])
-    except:
-        return []
+        async with session.get(url, timeout=15) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get('result', {}).get('articleList', [])
+    except: pass
+    return []
 
-async def scan_board(session, cafe_name, cafe_id, menu_id, start_dt, end_dt):
+async def scan_board(session, cafe_name, cafe_id, menu_id, start_ts, end_ts):
     article_ids = []
     BATCH_SIZE = 5 
-    
-    for start_page in range(1, 1001, BATCH_SIZE):
-        pages_to_fetch = range(start_page, start_page + BATCH_SIZE)
-        tasks = [fetch_board_page(session, cafe_id, menu_id, p) for p in pages_to_fetch]
+    for start_page in range(1, 3001, BATCH_SIZE): 
+        tasks = [fetch_board_page(session, cafe_id, menu_id, p) for p in range(start_page, start_page + BATCH_SIZE)]
         results = await asyncio.gather(*tasks)
         
-        should_stop_board = False
-        found_count_in_batch = 0 
-        
+        found_any_in_batch = False
+        batch_oldest_ts = None
+
         for articles in results:
             if not articles: continue
-            found_count_in_batch += 1
-            
             for item in articles:
                 info = item.get('item', {})
-                ts = info.get('writeDateTimestamp')
-                if not ts: continue
-                
-                post_dt = datetime.fromtimestamp(ts/1000)
-                aid = str(info.get('articleId'))
+                item_ts = info.get('writeDateTimestamp') / 1000
+                batch_oldest_ts = item_ts
+                aid = str(info.get('articleId')).strip()
 
-                if post_dt < start_dt:
-                    should_stop_board = True
-                    break
-                
-                if post_dt <= end_dt:
-                    if (cafe_name, aid) not in existing_posts:
+                if start_ts <= item_ts <= end_ts:
+                    if FORCE_COLLECT or (str(cafe_name).strip(), aid) not in existing_posts:
                         article_ids.append(aid)
-                    elif not INITIAL_FULL_SCAN: 
-                        should_stop_board = True
-                        break
-            
-            if should_stop_board: break
+                
+                if item_ts >= start_ts:
+                    found_any_in_batch = True
+
+        if batch_oldest_ts and batch_oldest_ts < start_ts:
+            print(f"  [Info] {cafe_name}: {datetime.fromtimestamp(batch_oldest_ts, KST)} 확인. 탐색 종료.")
+            break
         
-        if found_count_in_batch == 0: break
-        if should_stop_board: break
+        if start_page % 50 == 1:
+            print(f"  [Progress] {cafe_name} {start_page}P 스캔 중... (현재: {datetime.fromtimestamp(batch_oldest_ts, KST) if batch_oldest_ts else 'N/A'})")
             
-    return article_ids
+    return list(dict.fromkeys(article_ids))
 
-# ==========================================
-# 4. 메인 실행 루프
-# ==========================================
 async def main():
-    print(f"\n[Start] 수집 기간: {start_date_target} ~ {end_date_target}")
-    my_cookie = os.getenv("NAVER_COOKIE_STRING")    
-    if not my_cookie:
-        print("[Critical] 쿠키가 없습니다. Github Secrets(NAVER_COOKIE_STRING) 설정을 확인하세요.")
-        return
-
+    my_cookie = os.getenv("NAVER_COOKIE_STRING")
+    if not my_cookie: print("쿠키 없음"); return
+    
     headers = {
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "cookie": my_cookie,
-        "accept": "application/json, text/plain, */*",
-        "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "origin": "https://cafe.naver.com",
-        "referer": "https://cafe.naver.com/",
-        "x-cafe-product": "pc"
+        "x-cafe-product": "pc",
+        "referer": "https://cafe.naver.com/"
     }
     
     final_data = []
-
     async with aiohttp.ClientSession(headers=headers) as session:
         for cafe_name, cafe_id in cafes_to_scrape.items():
-            print(f"\n[Debug] '{cafe_name}' 접속 시도...")
-            
-            # 메뉴 정보 가져오기 (쿠키 유효성 체크 겸용)
-            all_m = []
-            menu_url = f"https://apis.naver.com/cafe-web/cafe-cafemain-api/v1.0/cafes/{cafe_id}/menus"
-            
-            async with session.get(menu_url) as resp:
-                # 쿠키 만료 체크
-                if "nidlogin.login" in str(resp.url) or resp.status in [401, 403]:
-                     print(f"  [Error] 쿠키가 만료되었습니다. 로컬에서 cookie.py를 실행해 Secrets를 갱신해주세요.")
-                     return
-
-                if resp.status == 200:
-                    try:
-                        m_data = await resp.json()
-                        res = m_data.get('result', {})
-                        all_m = res.get('menus', []) + res.get('linkMenus', [])
-                    except: pass
-            
-            target_ids = boards_to_scrape.get(cafe_id, [])
-            
-            if not target_ids:
-                print("  [Info] 전체 게시판 수집 모드")
-                board_ids = [m['menuId'] for m in all_m if m.get('menuId')]
-            else:
-                board_ids = target_ids 
-
-            for bid in board_ids:
-                session.headers.update({"Referer": f"https://cafe.naver.com/ArticleList.nhn?search.clubid={cafe_id}&search.menuid={bid}"})
-                
-                aids = await scan_board(session, cafe_name, cafe_id, bid, start_date_target, end_date_target)
+            print(f"\n[Step 1] '{cafe_name}' ID 스캔 시작...")
+            for bid in boards_to_scrape.get(cafe_id, [0]):
+                aids = await scan_board(session, cafe_name, cafe_id, bid, START_TS, END_TS)
                 
                 if aids:
-                    print(f"  -> {len(aids)}개 게시글 상세 수집 시작...")
-                    CHUNK_SIZE = 30
+                    print(f"[Step 2] '{cafe_name}' 본문 수집 시작 ({len(aids)}건)...")
+                    
+                    # [★해결책] 6,000건을 한꺼번에 하지 않고 20개씩 끊어서 수집
+                    CHUNK_SIZE = 20 
                     for i in range(0, len(aids), CHUNK_SIZE):
                         chunk = aids[i : i + CHUNK_SIZE]
-                        tasks = [fetch_article_detail(session, cafe_name, cafe_id, bid, aid) for aid in chunk]
-                        details = await asyncio.gather(*tasks)
-                        valid_details = [d for d in details if d]
-                        final_data.extend(valid_details)
-                        await asyncio.sleep(0.5)
+                        tasks = [fetch_article_detail(session, cafe_name, cafe_id, aid) for aid in chunk]
+                        results = await asyncio.gather(*tasks)
+                        
+                        valid_results = [r for r in results if r and r != "RETRY"]
+                        final_data.extend(valid_results)
+                        
+                        # 진행률 표시 및 서버 부하 방지용 짧은 휴식
+                        if (i // CHUNK_SIZE) % 5 == 0:
+                            print(f"    ... 수집 진행 중: {i}/{len(aids)} 완료 (현재까지 총 {len(final_data)}건 확보)")
+                        
+                        await asyncio.sleep(random.uniform(0.3, 0.7))
 
     if final_data and raw_sheet:
-        df = pd.DataFrame(final_data)
-        df = df.sort_values(by=['날짜', '게시글번호'], ascending=[True, True])
+        df = pd.DataFrame(final_data).sort_values(by=['날짜', '게시글번호'])
+        data_to_upload = df.values.tolist()
         
-        desired_order = ['사이트', '날짜', '제목', '본문', '댓글', '게시글번호']
-        final_columns = [col for col in desired_order if col in df.columns]
-        df = df[final_columns]
-        
-        try:
-            first_row = raw_sheet.row_values(1)
-            if first_row != final_columns:
-                raw_sheet.insert_row(final_columns, 1)
-        except:
-            raw_sheet.insert_row(final_columns, 1)
+        print(f"\n[Step 3] 구글 시트 업로드 중 ({len(data_to_upload)}건)...")
+        # 구글 시트도 한꺼번에 너무 많이 올리면 에러날 수 있으므로 1000개씩 분할 업로드
+        for i in range(0, len(data_to_upload), 1000):
+            raw_sheet.append_rows(data_to_upload[i:i+1000], value_input_option='USER_ENTERED')
             
-        print(f"\n[Save] {len(df)}건 업로드 중...")
-        raw_sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
-        print(f"[Success] 완료.")
+        print(f"[Success] 모든 수집 및 업로드 완료!")
     else:
-        print("\n[Info] 신규 데이터 없음.")
+        print("\n[Info] 수집된 데이터가 없습니다.")
 
 if __name__ == "__main__":
-    try:
-        import nest_asyncio
-        nest_asyncio.apply()
-    except ImportError:
-        pass
     asyncio.run(main())
