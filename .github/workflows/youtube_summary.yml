@@ -1,0 +1,32 @@
+name: YouTube Full Summarizer
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # 매일 한국 시간 자정 (UTC 15:00) 실행
+  workflow_dispatch:      # 수동 실행 버튼
+
+jobs:
+  run-summary:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 저장소 체크아웃
+      uses: actions/checkout@v3
+
+    - name: 파이썬 3.9 설정
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: 필요 라이브러리 설치
+      run: |
+        python -m pip install --upgrade pip
+        pip install google-api-python-client youtube-transcript-api openai gspread oauth2client
+
+    - name: 유튜브 요약 스크립트 실행
+      env:
+        GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        CHANNEL_ID: ${{ secrets.CHANNEL_ID }} # 여기가 핵심 변경사항입니다
+      run: python youtube_summary.py
