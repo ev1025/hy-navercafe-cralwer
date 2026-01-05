@@ -106,10 +106,10 @@ def get_all_videos(channel_id):
                 published_at = item["snippet"]["publishedAt"].split("T")[0]
                 videos.append({"id": video_id, "title": title, "date": published_at})
 
-                if len(videos) >= 2:
+                if len(videos) >= 100:
                     break
             
-            if len(videos) >= 2:
+            if len(videos) >= 100:
                 break
 
             next_page_token = pl_res.get("nextPageToken")
