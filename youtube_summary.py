@@ -48,6 +48,9 @@ def connect_google_sheet():
         except gspread.exceptions.WorksheetNotFound:
             print(f"⚠️ '{TARGET_SHEET_NAME}' 시트가 없어 새로 생성합니다.")
             sheet = spreadsheet.add_worksheet(title=TARGET_SHEET_NAME, rows=100, cols=20)
+        
+        if not sheet.row_values(1):
+            print("📝 헤더(첫 줄)를 생성합니다.")
             sheet.append_row(["채널명", "날짜", "제목", "스크립트", "GPT요약", "URL"])
             
         return sheet
@@ -62,6 +65,7 @@ def connect_google_sheet():
 # ==========================================
 def get_all_videos(channel_id):
     try:
+        # 제목 추출은 블로그의 BeautifulSoup 방식보다 이 공식 API 방식이 훨씬 안정적이고 정확합니다.
         youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
         
         res = youtube.channels().list(id=channel_id, part="snippet,contentDetails").execute()
@@ -110,24 +114,70 @@ def get_all_videos(channel_id):
         return [], "Unknown"
     
 # ==========================================
-# 4. 자막 및 요약 (기능 개선됨)
+# 4. 자막 및 요약 (블로그 내용 반영 + 기능 강화)
 # ==========================================
 def get_transcript(video_id):
+    """
+    [블로그 반영 사항]
+    1. 수동 자막(find_manually_created_transcript) 우선 시도
+    2. 실패 시 자동 자막(find_generated_transcript) 시도
+    3. 데이터 추출 시 딕셔너리/객체 타입 안전하게 확인 (hasattr)
+    
+    [기존 기능 유지]
+    4. 외국어만 있을 경우 한국어로 번역 (translate)
+    """
     try:
-        # 1. 자막 목록 조회
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript = None
         
-        # 2. 한국어 찾기 (수동 -> 자동 순으로 자동 검색됨)
-        # 만약 한국어가 없으면 영어라도 가져옴
-        transcript = transcript_list.find_transcript(['ko', 'en'])
+        # 1. 수동 생성 자막 우선 검색 (퀄리티가 더 좋음)
+        try:
+            transcript = transcript_list.find_manually_created_transcript(['ko', 'ko-KR', 'en', 'en-US'])
+        except:
+            pass
+
+        # 2. 수동이 없으면 자동 생성 자막 검색
+        if not transcript:
+            try:
+                transcript = transcript_list.find_generated_transcript(['ko', 'ko-KR', 'en', 'en-US'])
+            except:
+                pass
         
-        # 3. 데이터 가져오기
+        # 3. 그래도 없으면 "아무 언어"나 가져와서 "한국어 번역" 시도
+        if not transcript:
+            try:
+                transcript = next(iter(transcript_list)) # 첫 번째 자막 (보통 원어)
+                # 한국어가 아니면 번역
+                if not transcript.language_code.startswith('ko'):
+                    print(f"  - ({transcript.language_code}) 자막 발견 -> 한국어 번역 시도")
+                    transcript = transcript.translate('ko')
+            except:
+                print(f"  ❌ 사용 가능한 자막 없음")
+                return None
+
+        # 4. 자막 데이터 안전하게 추출 (블로그 로직 반영)
         transcript_data = transcript.fetch()
-        full_transcript = " ".join([item['text'] for item in transcript_data])
+        text_list = []
+        
+        for entry in transcript_data:
+            # 딕셔너리 형태인 경우
+            if isinstance(entry, dict) and 'text' in entry:
+                text_list.append(entry['text'])
+            # 객체 형태인 경우 (라이브러리 버전에 따라 다를 수 있음)
+            elif hasattr(entry, 'text'):
+                text_list.append(entry.text)
+        
+        full_transcript = " ".join(text_list)
         return full_transcript
 
+    except TranscriptsDisabled:
+        print(f"  ❌ 자막 기능이 비활성화된 영상입니다.")
+        return None
+    except NoTranscriptFound:
+        print(f"  ❌ 자막을 찾을 수 없습니다.")
+        return None
     except Exception as e:
-        # 자막이 아예 없는 경우 (라이브 직후 등)
+        print(f"  ❌ 자막 에러 발생: {e}")
         return None
 
 def summarize_text(text):
@@ -182,76 +232,25 @@ def main():
             
             if script:
                 summary = summarize_text(script)
-                
-                if len(script) > SHEET_CELL_LIMIT:
-                    saved_script = script[:SHEET_CELL_LIMIT] + "...(절삭)"
-                else:
-                    saved_script = script
-
-                sheet.append_row([
-                    channel_name,
-                    video['date'],
-                    video['title'],
-                    saved_script,
-                    summary,
-                    video_url
-                ])
-                print(f"    ✅ 저장 완료")
-                time.sleep(2)
+                saved_script = script
+                if len(saved_script) > SHEET_CELL_LIMIT:
+                    saved_script = saved_script[:SHEET_CELL_LIMIT] + "...(절삭)"
+                status_msg = "✅ 요약 완료"
             else:
-                print(f"    ❌ 자막 없음 (건너뜀)")
+                saved_script = "자막 없음 (라이브 직후 또는 자막 미제공)"
+                summary = "요약 불가"
+                status_msg = "⚠️ 자막 없음 (행만 추가함)"
+
+            sheet.append_row([
+                channel_name,
+                video['date'],
+                video['title'],
+                saved_script,
+                summary,
+                video_url
+            ])
+            print(f"    {status_msg}")
+            time.sleep(2)
 
 if __name__ == "__main__":
     main()
-
-
-# ==========================================
-# 3. 영상 목록 수집
-# ==========================================
-# def get_all_videos(channel_id):
-#     try:
-#         youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
-        
-#         res = youtube.channels().list(id=channel_id, part="snippet,contentDetails").execute()
-        
-#         if not res["items"]:
-#             print(f"⚠️ 채널 ID({channel_id})를 찾을 수 없습니다.")
-#             return [], "Unknown"
-
-#         channel_title = res["items"][0]["snippet"]["title"]
-#         playlist_id = res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
-        
-#         videos = []
-#         next_page_token = None
-        
-#         print(f"📡 '{channel_title}'의 전체 영상 목록 조회 중...")
-        
-#         while True:
-#             pl_res = youtube.playlistItems().list(
-#                 playlistId=playlist_id,
-#                 part="snippet",
-#                 maxResults=50,
-#                 pageToken=next_page_token
-#             ).execute()
-            
-#             for item in pl_res["items"]:
-#                 video_id = item["snippet"]["resourceId"]["videoId"]
-#                 title = item["snippet"]["title"]
-#                 published_at = item["snippet"]["publishedAt"].split("T")[0]
-#                 videos.append({"id": video_id, "title": title, "date": published_at})
-            
-#             next_page_token = pl_res.get("nextPageToken")
-#             if not next_page_token:
-#                 break
-            
-#             next_page_token = pl_res.get("nextPageToken")
-#             # [테스트] 다음 페이지가 없거나, 수집된 영상이 2개 이상이면 종료
-#             if not next_page_token or len(videos) >= 2: 
-#                 break
-                
-#         print(f"✅ 총 {len(videos)}개 영상 발견")
-#         return videos, channel_title
-        
-#     except Exception as e:
-#         print(f"❌ 목록 조회 에러: {e}")
-#         return [], "Unknown"
