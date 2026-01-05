@@ -8,6 +8,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
 import openai
 
+## 유튜브 크롤링 https://pypi.org/project/youtube-transcript-api/
 # ==========================================
 # 1. 환경 변수 및 설정
 # ==========================================
@@ -131,7 +132,11 @@ def get_transcript(video_id):
     2. 없으면 영어(수동) -> 영어(자동) 순으로 찾습니다.
     """
     try:
-        ytt_api = YouTubeTranscriptApi()
+        ytt_api = YouTubeTranscriptApi(    
+            proxies={
+        "http": "http://user:pass@ip:port",
+        "https": "http://user:pass@ip:port",
+    })
         transcript_data = ytt_api.fetch(video_id, languages = [ 'ko' ])
 
         full_text = " ".join(snippet.text for snippet in transcript_data.snippets)
