@@ -2,7 +2,7 @@ import os
 import json
 import time
 import gspread
-from google.oauth2.service_account import Credentials  # [변경] oauth2client 대신 최신 라이브러리 사용
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
@@ -16,7 +16,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 GCP_SA_KEY_STR = os.environ.get("GCP_SA_KEY") 
 CHANNEL_IDS_STR = os.environ.get("CHANNEL_ID") 
 
-# [설정] 구글 시트 URL (편집 모드 /edit 로 끝나는 주소)
+# [설정] 구글 시트 URL
 TARGET_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1vXco0waE_iBVhmXUqMe7O56KKSjY6bn4MiC3btoAPS8/edit"
 TARGET_SHEET_NAME = "유튜브 요약"
 
@@ -30,7 +30,6 @@ openai.api_key = OPENAI_API_KEY
 # 2. 구글 시트 연결 (google-auth 신버전 방식)
 # ==========================================
 def connect_google_sheet():
-    # [변경] 최신 스코프 및 인증 방식 적용
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -39,17 +38,14 @@ def connect_google_sheet():
     try:
         print("🔑 구글 인증(New Version) 시도 중...")
         
-        # 1. 서비스 계정 키 로드 (JSON 문자열 or 파일)
         if GCP_SA_KEY_STR:
             creds_dict = json.loads(GCP_SA_KEY_STR)
             creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         else:
             creds = Credentials.from_service_account_file("service_account.json", scopes=scopes)
             
-        # 2. gspread 연결
         client = gspread.authorize(creds)
         
-        # 3. 시트 열기
         try:
             print(f"📄 구글 시트 접속 중: {TARGET_SHEET_NAME}")
             spreadsheet = client.open_by_url(TARGET_SPREADSHEET_URL)
@@ -59,7 +55,6 @@ def connect_google_sheet():
             print(f"⚠️ '{TARGET_SHEET_NAME}' 시트가 없어 새로 생성합니다.")
             sheet = spreadsheet.add_worksheet(title=TARGET_SHEET_NAME, rows=100, cols=20)
         
-        # 4. 헤더 확인
         if not sheet.row_values(1):
             print("📝 헤더(첫 줄)를 생성합니다.")
             sheet.append_row(["채널명", "날짜", "제목", "스크립트", "GPT요약", "URL"])
@@ -68,7 +63,6 @@ def connect_google_sheet():
 
     except Exception as e:
         print(f"[Error] 구글 시트 연결 실패: {str(e)}")
-        print("💡 힌트: 서비스 계정 이메일이 해당 구글 시트에 '편집자'로 초대되어 있는지 확인해주세요.")
         raise e
 
 # ==========================================
@@ -103,13 +97,16 @@ def get_all_videos(channel_id):
             for item in pl_res["items"]:
                 video_id = item["snippet"]["resourceId"]["videoId"]
                 title = item["snippet"]["title"]
+                
+                # [옵션] 라이브 영상 등 필터링이 필요하면 여기서 if문 추가
+                
                 published_at = item["snippet"]["publishedAt"].split("T")[0]
                 videos.append({"id": video_id, "title": title, "date": published_at})
 
-                if len(videos) >= 100:
+                if len(videos) >= 2: # 테스트용 2개 제한
                     break
             
-            if len(videos) >= 100:
+            if len(videos) >= 2:
                 break
 
             next_page_token = pl_res.get("nextPageToken")
@@ -124,62 +121,32 @@ def get_all_videos(channel_id):
         return [], "Unknown"
     
 # ==========================================
-# 4. 자막 및 요약 (신버전 API 대응)
+# 4. 자막 및 요약 (사용자 요청: 심플 표준 방식)
 # ==========================================
 def get_transcript(video_id):
+    """
+    복잡한 로직을 제거하고 YouTubeTranscriptApi.get_transcript 표준 함수를 사용합니다.
+    languages=['ko', 'en'] 설정 시:
+    1. 한국어(수동) -> 한국어(자동) 순으로 찾습니다.
+    2. 없으면 영어(수동) -> 영어(자동) 순으로 찾습니다.
+    """
     try:
-        # [변경] v1.x 이상에서는 객체를 생성(Instantiate)해서 사용해야 합니다.
-        yt = YouTubeTranscriptApi()
+        # [핵심 변경] 사용자님이 성공한 방식과 동일한 로직입니다.
+        # 이 함수는 자막 딕셔너리 리스트를 바로 반환합니다.
+        transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
         
-        # 1. 자막 목록 가져오기
-        # 주의: 신버전에서도 list_transcripts가 없다면 yt.get_transcript(video_id)를 바로 써야할 수 있으나
-        # 대부분의 경우 list_transcripts 메서드를 제공합니다.
-        try:
-            transcript_list = yt.list_transcripts(video_id)
-        except AttributeError:
-             # 만약 진짜 최신 버전에서 메서드 이름이 바뀌었다면 fetch fallback
-             # (일부 버전에서는 yt.fetch(video_id)로 대체될 수 있음)
-             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-
-        transcript = None
-        
-        # 2. 수동 자막 우선 (ko, en)
-        try:
-            transcript = transcript_list.find_manually_created_transcript(['ko', 'ko-KR', 'en', 'en-US'])
-        except:
-            pass
-
-        # 3. 자동 자막 차선
-        if not transcript:
-            try:
-                transcript = transcript_list.find_generated_transcript(['ko', 'ko-KR', 'en', 'en-US'])
-            except:
-                pass
-        
-        # 4. 번역 시도 (Fallback)
-        if not transcript:
-            try:
-                transcript = next(iter(transcript_list))
-                if not transcript.language_code.startswith('ko'):
-                    print(f"  - ({transcript.language_code}) 자막 발견 -> 한국어 번역 시도")
-                    transcript = transcript.translate('ko')
-            except:
-                return None
-
-        # 5. 데이터 추출
-        transcript_data = transcript.fetch()
-        text_list = []
-        for entry in transcript_data:
-            if isinstance(entry, dict) and 'text' in entry:
-                text_list.append(entry['text'])
-            elif hasattr(entry, 'text'):
-                text_list.append(entry.text)
-        
+        # 텍스트만 추출하여 합치기
+        text_list = [entry['text'] for entry in transcript_data]
         return " ".join(text_list)
 
+    except NoTranscriptFound:
+        print(f"  ❌ 자막 없음 (한국어/영어 자막을 찾을 수 없음)")
+        return None
+    except TranscriptsDisabled:
+        print(f"  ❌ 자막 기능이 비활성화된 영상입니다.")
+        return None
     except Exception as e:
-        # 에러 메시지에 따라 로그 출력
-        print(f"  ❌ 자막 가져오기 실패: {e}")
+        print(f"  ❌ 자막 에러 발생: {e}")
         return None
 
 def summarize_text(text):
@@ -203,7 +170,7 @@ def summarize_text(text):
 # 5. 실행
 # ==========================================
 def main():
-    print("🚀 유튜브 전체 수집기 시작 (New Version)")
+    print("🚀 유튜브 전체 수집기 시작 (Simple Version)")
     
     if not CHANNEL_IDS_STR:
         print("❌ Secrets에 'CHANNEL_ID'가 설정되지 않았습니다.")
