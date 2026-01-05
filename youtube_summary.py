@@ -131,14 +131,11 @@ def get_transcript(video_id):
     2. 없으면 영어(수동) -> 영어(자동) 순으로 찾습니다.
     """
     try:
-        # [핵심 변경] 사용자님이 성공한 방식과 동일한 로직입니다.
-        # 이 함수는 자막 딕셔너리 리스트를 바로 반환합니다.
         ytt_api = YouTubeTranscriptApi()
         transcript_data = ytt_api.fetch(video_id, languages = [ 'ko' ])
-        
-        # 텍스트만 추출하여 합치기
-        text_list = [entry['text'] for entry in transcript_data]
-        return " ".join(text_list)
+
+        full_text = " ".join(snippet.text for snippet in transcript_data.snippets)
+        return full_text
 
     except NoTranscriptFound:
         print(f"  ❌ 자막 없음 (한국어/영어 자막을 찾을 수 없음)")
