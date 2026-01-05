@@ -133,7 +133,8 @@ def get_transcript(video_id):
     try:
         # [핵심 변경] 사용자님이 성공한 방식과 동일한 로직입니다.
         # 이 함수는 자막 딕셔너리 리스트를 바로 반환합니다.
-        transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
+        ytt_api = YouTubeTranscriptApi()
+        transcript_data = ytt_api.fetch(video_id, languages = [ 'ko' ])
         
         # 텍스트만 추출하여 합치기
         text_list = [entry['text'] for entry in transcript_data]
