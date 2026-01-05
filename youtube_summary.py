@@ -17,7 +17,7 @@ GCP_SA_KEY_STR = os.environ.get("GCP_SA_KEY")
 CHANNEL_IDS_STR = os.environ.get("CHANNEL_ID") 
 
 # [수정됨] 파일 이름 검색 대신 URL과 시트 이름 지정
-TARGET_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/u/0/d/1vXco0waE_iBVhmXUqMe7O56KKSjY6bn4MiC3btoAPS8/htmlview#gid=0"
+TARGET_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1vXco0waE_iBVhmXUqMe7O56KKSjY6bn4MiC3btoAPS8/edit"
 TARGET_SHEET_NAME = "유튜브 요약"
 
 # 설정
