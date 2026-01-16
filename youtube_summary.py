@@ -1,13 +1,9 @@
-import os
-import json
-import time
-import random
-import asyncio
-import re
+import os, json, random ,asyncio, re
 from tqdm import tqdm
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from datetime import datetime, timedelta
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 import openai
@@ -28,12 +24,14 @@ TARGET_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1vXco0waE_iBVhm
 SOURCE_SHEET_NAME = "유튜브정리"
 TARGET_SHEET_NAME = "유튜브 요약"
 
+# dynamic_start_date = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')
+# START_DATE = dynamic_start_date
 START_DATE = "2024-01-01" 
-TEST_NUM = 10 # None으로 하면 전체 수집
+TEST_NUM = None # None으로 하면 전체 수집
 
 SHEET_CELL_LIMIT = 45000 
 GPT_INPUT_LIMIT = 100000 
-CONCURRENT_LIMIT = 5 
+CONCURRENT_LIMIT = 15 
 semaphore = asyncio.Semaphore(CONCURRENT_LIMIT)
 
 aclient = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
