@@ -45,7 +45,7 @@ print(f"==================================================\n")
 cafes_to_scrape = {"토마스": 17175596, "수만휘": 10197921, "로물콘": 28699715}
 boards_to_scrape = {17175596: [0], 10197921: [0], 28699715: [0]}
 
-GCP_SERVICE_KEY = "naver_cralwer_service_key.json"
+GCP_SERVICE_KEY = "service_account.json"
 googlesheet_url = "https://docs.google.com/spreadsheets/d/1vXco0waE_iBVhmXUqMe7O56KKSjY6bn4MiC3btoAPS8/edit?gid=0#gid=0"
 
 # ==========================================
