@@ -26,7 +26,7 @@ jobs:
 
       - name: Create Google Service Account Key file
         run: |
-          echo '${{ secrets.GCP_SA_KEY }}' > naver_cralwer_service_key.json
+          echo '${{ secrets.GCP_SA_KEY }}' > service_account.json
       
       - name: Run the Python script
         env:

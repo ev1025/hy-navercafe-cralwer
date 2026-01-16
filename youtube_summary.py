@@ -8,7 +8,8 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import WebshareProxyConfig
 import openai
 from dotenv import load_dotenv
-
+# conda activate recent
+# cd /c/Users/ENVY/Desktop/youtube/hy-navercafe-cralwer
 load_dotenv()
 
 # ==========================================
