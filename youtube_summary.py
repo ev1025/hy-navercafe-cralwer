@@ -214,123 +214,123 @@ async def process_video(video, channel_name, pbar, processed_in_channel, channel
     
         return [channel_name, video['date'], video['title'], saved_script, summary, video_url]
 
-# ==========================================
-# [NEW] 9. 실패 항목 재시도 (A/S) 기능
-# ==========================================
-async def repair_failed_rows(sheet):
-    print("\n🔧 [A/S 단계] '요약 불가' 항목 재작업 시작...")
+# # ==========================================
+# # [NEW] 9. 실패 항목 재시도 (A/S) 기능
+# # ==========================================
+# async def repair_failed_rows(sheet):
+#     print("\n🔧 [A/S 단계] '요약 불가' 항목 재작업 시작...")
     
-    # 1. 시트 데이터 전체 읽기
-    try:
-        # get_all_values는 동기 함수이므로 retry_action으로 보호하지 않아도 되지만, 
-        # API 오류 가능성이 있으므로 간단한 try-except 처리
-        rows = sheet.get_all_values()
-    except Exception as e:
-        print(f"❌ 시트 읽기 실패: {e}")
-        return
+#     # 1. 시트 데이터 전체 읽기
+#     try:
+#         # get_all_values는 동기 함수이므로 retry_action으로 보호하지 않아도 되지만, 
+#         # API 오류 가능성이 있으므로 간단한 try-except 처리
+#         rows = sheet.get_all_values()
+#     except Exception as e:
+#         print(f"❌ 시트 읽기 실패: {e}")
+#         return
 
-    # 2. 실패한 행 추출 (헤더 제외)
-    failed_tasks = []
-    # rows[i]는 엑셀의 i+1행 (0번은 헤더)
-    for i, row in enumerate(rows):
-        if i == 0: continue 
+#     # 2. 실패한 행 추출 (헤더 제외)
+#     failed_tasks = []
+#     # rows[i]는 엑셀의 i+1행 (0번은 헤더)
+#     for i, row in enumerate(rows):
+#         if i == 0: continue 
         
-        # 안전장치: 행 데이터가 부족한 경우 건너뜀
-        if len(row) < 6: continue
+#         # 안전장치: 행 데이터가 부족한 경우 건너뜀
+#         if len(row) < 6: continue
         
-        # row 인덱스: 0:채널, 1:날짜, 2:제목, 3:스크립트, 4:요약, 5:URL
-        script = row[3]
-        summary = row[4]
-        url = row[5]
+#         # row 인덱스: 0:채널, 1:날짜, 2:제목, 3:스크립트, 4:요약, 5:URL
+#         script = row[3]
+#         summary = row[4]
+#         url = row[5]
         
-        # 조건: '요약 불가'이거나 비어있는데, URL은 정상적인 경우
-        if (summary.strip() == "요약 불가" or summary.strip() == "") and url.strip().startswith("http"):
-            failed_tasks.append({
-                "row_idx": i + 1, # 엑셀 행 번호 (1부터 시작)
-                "channel": row[0],
-                "script": script,
-                "url": url
-            })
+#         # 조건: '요약 불가'이거나 비어있는데, URL은 정상적인 경우
+#         if (summary.strip() == "요약 불가" or summary.strip() == "") and url.strip().startswith("http"):
+#             failed_tasks.append({
+#                 "row_idx": i + 1, # 엑셀 행 번호 (1부터 시작)
+#                 "channel": row[0],
+#                 "script": script,
+#                 "url": url
+#             })
             
-    if not failed_tasks:
-        print("✨ 모든 항목이 정상입니다. 재작업할 것이 없습니다.")
-        return
+#     if not failed_tasks:
+#         print("✨ 모든 항목이 정상입니다. 재작업할 것이 없습니다.")
+#         return
 
-    print(f"⚠️ 총 {len(failed_tasks)}개의 실패 항목 발견! 심폐소생술 시도합니다...")
+#     print(f"⚠️ 총 {len(failed_tasks)}개의 실패 항목 발견! 심폐소생술 시도합니다...")
 
-    # 3. 재작업 워커 정의
-    async def repair_worker(task):
-        async with semaphore: # 동시 실행 제한
-            row_num = task['row_idx']
-            url = task['url']
-            channel_name = task['channel']
-            current_script = task['script']
+#     # 3. 재작업 워커 정의
+#     async def repair_worker(task):
+#         async with semaphore: # 동시 실행 제한
+#             row_num = task['row_idx']
+#             url = task['url']
+#             channel_name = task['channel']
+#             current_script = task['script']
             
-            # Video ID 추출
-            try:
-                if "v=" in url:
-                    video_id = url.split("v=")[1].split("&")[0]
-                else:
-                    return None
-            except:
-                return None
+#             # Video ID 추출
+#             try:
+#                 if "v=" in url:
+#                     video_id = url.split("v=")[1].split("&")[0]
+#                 else:
+#                     return None
+#             except:
+#                 return None
 
-            # [단계 1] 자막이 없다면 자막부터 다시 시도
-            if not current_script or current_script == "자막 없음":
-                await asyncio.sleep(random.uniform(0.5, 1.5))
-                # 재시도 횟수 2회
-                fetched_script = await retry_action(get_transcript_sync, video_id, retries=2, delay=30, description=f"[{channel_name}] 자막 재수집")
-                if fetched_script:
-                    current_script = fetched_script
+#             # [단계 1] 자막이 없다면 자막부터 다시 시도
+#             if not current_script or current_script == "자막 없음":
+#                 await asyncio.sleep(random.uniform(0.5, 1.5))
+#                 # 재시도 횟수 2회
+#                 fetched_script = await retry_action(get_transcript_sync, video_id, retries=2, delay=30, description=f"[{channel_name}] 자막 재수집")
+#                 if fetched_script:
+#                     current_script = fetched_script
             
-            # [단계 2] 자막이 확보되었다면 요약 재시도
-            new_summary = "요약 불가"
-            final_script = current_script
+#             # [단계 2] 자막이 확보되었다면 요약 재시도
+#             new_summary = "요약 불가"
+#             final_script = current_script
             
-            if current_script and current_script != "자막 없음":
-                # 요약 재시도 (재시도 횟수 2회)
-                summary_res = await retry_action(summarize_text_task, current_script, retries=2, delay=30, description=f"[{channel_name}] 요약 재시도")
-                if summary_res:
-                    new_summary = summary_res
+#             if current_script and current_script != "자막 없음":
+#                 # 요약 재시도 (재시도 횟수 2회)
+#                 summary_res = await retry_action(summarize_text_task, current_script, retries=2, delay=30, description=f"[{channel_name}] 요약 재시도")
+#                 if summary_res:
+#                     new_summary = summary_res
             
-            # [단계 3] 결과가 개선되었으면 리턴 ('요약 불가' 탈출했거나, 자막이라도 건졌거나)
-            if new_summary != "요약 불가" or (current_script != "자막 없음" and task['script'] == "자막 없음"):
-                # 스크립트 길이 절삭
-                if len(current_script) > SHEET_CELL_LIMIT:
-                    final_script = current_script[:SHEET_CELL_LIMIT] + "...(절삭)"
+#             # [단계 3] 결과가 개선되었으면 리턴 ('요약 불가' 탈출했거나, 자막이라도 건졌거나)
+#             if new_summary != "요약 불가" or (current_script != "자막 없음" and task['script'] == "자막 없음"):
+#                 # 스크립트 길이 절삭
+#                 if len(current_script) > SHEET_CELL_LIMIT:
+#                     final_script = current_script[:SHEET_CELL_LIMIT] + "...(절삭)"
                 
-                return (row_num, final_script, new_summary, channel_name)
+#                 return (row_num, final_script, new_summary, channel_name)
             
-            return None
+#             return None
 
-    # 4. 재작업 실행
-    pbar = tqdm(total=len(failed_tasks), desc="🔧 A/S 진행 중")
-    tasks = [asyncio.create_task(repair_worker(t)) for t in failed_tasks]
+#     # 4. 재작업 실행
+#     pbar = tqdm(total=len(failed_tasks), desc="🔧 A/S 진행 중")
+#     tasks = [asyncio.create_task(repair_worker(t)) for t in failed_tasks]
     
-    success_count = 0
+#     success_count = 0
     
-    for future in asyncio.as_completed(tasks):
-        result = await future
-        pbar.update(1)
+#     for future in asyncio.as_completed(tasks):
+#         result = await future
+#         pbar.update(1)
         
-        if result:
-            row_num, script_txt, summary_txt, ch_name = result
+#         if result:
+#             row_num, script_txt, summary_txt, ch_name = result
             
-            # 구글 시트 특정 셀 업데이트 (D열=자막, E열=요약)
-            # update는 API 호출이므로 retry 적용
-            cell_range = f"D{row_num}:E{row_num}"
-            try:
-                await retry_action(
-                    sheet.update, cell_range, [[script_txt, summary_txt]],
-                    retries=3, delay=60, description=f"{ch_name} 행 업데이트"
-                )
-                success_count += 1
-                pbar.write(f"✅ {ch_name} (행 {row_num}) 복구 성공!")
-            except Exception as e:
-                pbar.write(f"❌ 행 {row_num} 업데이트 실패: {e}")
+#             # 구글 시트 특정 셀 업데이트 (D열=자막, E열=요약)
+#             # update는 API 호출이므로 retry 적용
+#             cell_range = f"D{row_num}:E{row_num}"
+#             try:
+#                 await retry_action(
+#                     sheet.update, cell_range, [[script_txt, summary_txt]],
+#                     retries=3, delay=60, description=f"{ch_name} 행 업데이트"
+#                 )
+#                 success_count += 1
+#                 pbar.write(f"✅ {ch_name} (행 {row_num}) 복구 성공!")
+#             except Exception as e:
+#                 pbar.write(f"❌ 행 {row_num} 업데이트 실패: {e}")
 
-    pbar.close()
-    print(f"✨ A/S 완료: 총 {success_count}개 항목을 살려냈습니다!")
+#     pbar.close()
+#     print(f"✨ A/S 완료: 총 {success_count}개 항목을 살려냈습니다!")
 
 # ==========================================
 # 8. 메인 실행 (수정됨)
@@ -405,12 +405,12 @@ async def async_main():
     else:
         print("🎉 새로 수집할 영상이 없습니다. 바로 A/S 단계로 넘어갑니다.")
 
-    # ==========================================
-    # [마지막 단계] 실패한 항목 재시도 실행
-    # ==========================================
-    print("-" * 50)
-    await repair_failed_rows(sheet)
-    print("-" * 50)
+    # # ==========================================
+    # # [마지막 단계] 실패한 항목 재시도 실행
+    # # ==========================================
+    # print("-" * 50)
+    # await repair_failed_rows(sheet)
+    # print("-" * 50)
 
     print("\n🎉 모든 작업(수집+복구)이 완료되었습니다!")
 
