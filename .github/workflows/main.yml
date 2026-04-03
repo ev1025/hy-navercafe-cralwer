@@ -32,4 +32,4 @@ jobs:
         env:
           # Github Settings > Secrets에 등록한 쿠키 값을 환경변수로 주입
           NAVER_COOKIE_STRING: ${{ secrets.NAVER_COOKIE_STRING }}
-        run: python cafe_crawler.py
+        run: python -u cafe_crawler.py

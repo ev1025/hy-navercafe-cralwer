@@ -31,4 +31,4 @@ jobs:
         GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         PROXY_USERNAME: ${{ secrets.PROXY_USERNAME }}
         PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
-      run: python youtube_summary.py
+      run: python -u youtube_summary.py
