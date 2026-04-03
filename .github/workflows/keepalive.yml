@@ -1,0 +1,21 @@
+name: Keepalive
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 매월 1일 UTC 00:00 실행
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Keepalive commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive to prevent Actions from being disabled"
+          git push

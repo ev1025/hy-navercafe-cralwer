@@ -29,18 +29,6 @@ def get_timestamp(year, month, day, hour=0, minute=0, second=0):
 now_kst = datetime.now(timezone.utc).astimezone(KST)
 today_midnight_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
 
-if INITIAL_FULL_SCAN:
-    # 21일 00:00:00 ~ 23:59:59 KST
-    START_TS = get_timestamp(2025, 12, 21, 0, 0, 0)
-    END_TS = get_timestamp(2025, 12, 21, 23, 59, 59)
-else:
-    yesterday = today_midnight_kst - timedelta(days=1)
-    START_TS = yesterday.timestamp()
-    END_TS = (today_midnight_kst - timedelta(seconds=1)).timestamp()
-
-print(f"==================================================")
-print(f"[설정 확인] 수집 범위 (KST): {datetime.fromtimestamp(START_TS, KST)} ~ {datetime.fromtimestamp(END_TS, KST)}")
-print(f"==================================================\n")
 
 cafes_to_scrape = {"토마스": 17175596, "수만휘": 10197921, "로물콘": 28699715}
 boards_to_scrape = {17175596: [0], 10197921: [0], 28699715: [0]}
@@ -60,7 +48,42 @@ def get_raw_sheet():
     except Exception as e:
         print(f"[Error] 구글 시트 연결 실패: {e}"); return None
 
+def get_last_date_from_sheet(sheet):
+    """구글 시트의 날짜 컬럼에서 가장 최근 날짜를 반환합니다."""
+    try:
+        date_values = sheet.col_values(2)  # B열 (날짜)
+        if len(date_values) <= 1:
+            return None
+        last_date_str = max(date_values[1:])  # YYYY-MM-DD HH:MM:SS 형식이므로 문자열 비교 가능
+        last_date = datetime.strptime(last_date_str.strip()[:10], "%Y-%m-%d").replace(tzinfo=KST)
+        return last_date
+    except Exception as e:
+        print(f"[Warning] 마지막 날짜 읽기 실패: {e}")
+        return None
+
 raw_sheet = get_raw_sheet()
+
+# ==========================================
+# 수집 기간 설정 (시트의 마지막 날짜 기준)
+# ==========================================
+if INITIAL_FULL_SCAN:
+    START_TS = get_timestamp(2025, 12, 21, 0, 0, 0)
+    END_TS = get_timestamp(2025, 12, 21, 23, 59, 59)
+else:
+    last_date = get_last_date_from_sheet(raw_sheet) if raw_sheet else None
+    if last_date:
+        next_day = (last_date + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        START_TS = next_day.timestamp()
+        print(f"[Info] 시트 마지막 날짜: {last_date.strftime('%Y-%m-%d')} → {next_day.strftime('%Y-%m-%d')}부터 수집")
+    else:
+        yesterday = today_midnight_kst - timedelta(days=1)
+        START_TS = yesterday.timestamp()
+    END_TS = (today_midnight_kst + timedelta(days=1) - timedelta(seconds=1)).timestamp()
+
+print(f"==================================================")
+print(f"[설정 확인] 수집 범위 (KST): {datetime.fromtimestamp(START_TS, KST)} ~ {datetime.fromtimestamp(END_TS, KST)}")
+print(f"==================================================\n")
+
 existing_posts = set()
 if raw_sheet and not FORCE_COLLECT:
     try:

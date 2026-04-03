@@ -24,6 +24,7 @@ PROXY_PASSWORD = os.environ.get("PROXY_PASSWORD")
 TARGET_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1vXco0waE_iBVhmXUqMe7O56KKSjY6bn4MiC3btoAPS8/edit"
 SOURCE_SHEET_NAME = "유튜브정리"
 TARGET_SHEET_NAME = "유튜브 요약"
+LOG_SHEET_NAME = "수집로그"
 
 # dynamic_start_date = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')
 # START_DATE = dynamic_start_date
@@ -74,6 +75,9 @@ def connect_google_sheet(sheet_name=None):
             if sheet_name == TARGET_SHEET_NAME:
                 sheet = spreadsheet.add_worksheet(title=TARGET_SHEET_NAME, rows=100, cols=20)
                 sheet.append_row(["채널명", "날짜", "제목", "스크립트", "GPT요약", "URL"])
+            elif sheet_name == LOG_SHEET_NAME:
+                sheet = spreadsheet.add_worksheet(title=LOG_SHEET_NAME, rows=100, cols=2)
+                sheet.append_row(["URL", "수집일시"])
             else:
                 raise Exception(f"❌ '{sheet_name}' 시트를 찾을 수 없습니다.")
         return sheet
@@ -343,6 +347,12 @@ async def async_main():
     try: existing_urls = set(sheet.col_values(6))
     except: existing_urls = set()
 
+    log_sheet = connect_google_sheet(LOG_SHEET_NAME)
+    try: logged_urls = set(log_sheet.col_values(1))
+    except: logged_urls = set()
+
+    all_known_urls = existing_urls | logged_urls
+
     all_video_tasks_info = []
     channels_task_counts = {}
     channel_names_display = []
@@ -358,7 +368,7 @@ async def async_main():
         
         new_videos = []
         for v in videos:
-            if f"https://www.youtube.com/watch?v={v['id']}" not in existing_urls:
+            if f"https://www.youtube.com/watch?v={v['id']}" not in all_known_urls:
                 new_videos.append(v)
         
         if TEST_NUM and len(new_videos) > TEST_NUM:
@@ -396,12 +406,16 @@ async def async_main():
                 if len(buffer) >= 50:
                     pbar.write(f"🚀 버퍼 가득 참 (50개) -> 구글 시트 즉시 저장")
                     upload_data = list(buffer)
-                    buffer.clear() 
+                    buffer.clear()
                     await retry_action(sheet.append_rows, upload_data, retries=5, delay=60, description="구글 시트 저장")
+                    log_rows = [[row[5], datetime.now().strftime('%Y-%m-%d %H:%M:%S')] for row in upload_data if len(row) > 5]
+                    await retry_action(log_sheet.append_rows, log_rows, retries=3, delay=60, description="수집로그 기록")
                     
             if buffer:
                 pbar.write(f"🚀 나머지 {len(buffer)}개 -> 구글 시트 저장")
                 await retry_action(sheet.append_rows, buffer, retries=5, delay=60, description="마지막 저장")
+                log_rows = [[row[5], datetime.now().strftime('%Y-%m-%d %H:%M:%S')] for row in buffer if len(row) > 5]
+                await retry_action(log_sheet.append_rows, log_rows, retries=3, delay=60, description="수집로그 기록")
     else:
         print("🎉 새로 수집할 영상이 없습니다. 바로 A/S 단계로 넘어갑니다.")
 
