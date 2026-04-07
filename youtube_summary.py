@@ -182,28 +182,19 @@ def get_transcript_sync(video_id):
     if not PROXY_USERNAME or not PROXY_PASSWORD: 
         raise ValueError("프록시 정보 없음")
     
-    # ✅ 1. 웹쉐어 프록시 URL 형식에 맞게 조합 (이미지 참고: 주소 p.webshare.io, 포트 80)
-    proxy_url = f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@p.webshare.io:80"
-    
-    # ✅ 2. youtube_transcript_api가 인식할 수 있는 프록시 딕셔너리 생성
-    proxies = {
-        "http": proxy_url,
-        "https": proxy_url,
-    }
-    
     try:
-        # ✅ 3. 공식 API 호출 방식 (get_transcript 함수에 proxies 파라미터 전달)
-        transcript_data = YouTubeTranscriptApi.get_transcript(
-            video_id, 
-            languages=['ko'], 
-            proxies=proxies
-        )
+        # 진우 님의 원래 방식 (최신 버전 완벽 대응 코드)
+        proxy_config = WebshareProxyConfig(proxy_username=PROXY_USERNAME, proxy_password=PROXY_PASSWORD)
+        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
         
-        # 정상적으로 가져왔을 경우 텍스트만 이어붙여서 반환
-        return " ".join(item['text'] for item in transcript_data)
+        # 자막 수집 (한국어)
+        transcript_data = ytt_api.fetch(video_id, languages=['ko'])
+        
+        return " ".join(snippet.text for snippet in transcript_data.snippets)
         
     except Exception as e:
-        print(f"자막 추출 실패 ({video_id}): {e}")
+        # 🚨 원래 코드가 실패했던 '진짜 이유'를 터미널에서 확인하기 위한 코드
+        print(f"\n[자막 에러 - {video_id}]: {type(e).__name__} - {e}")
         return None
 
 async def summarize_text_task(text):
