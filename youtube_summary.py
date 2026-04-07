@@ -5,7 +5,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.proxies import WebshareProxyConfig
+from youtube_transcript_api.proxies import GenericProxyConfig
 import openai
 from dotenv import load_dotenv
 # conda activate recent
@@ -179,17 +179,28 @@ def get_all_videos(channel_id, start_date):
 # 5~7. 처리 로직 (자막, 요약, 워커)
 # ==========================================
 def get_transcript_sync(video_id):
-
-    if not PROXY_USERNAME or not PROXY_PASSWORD: raise ValueError("프록시 정보 없음")
-
-    proxy_config = WebshareProxyConfig(proxy_username=PROXY_USERNAME, proxy_password=PROXY_PASSWORD)
-
-    ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
-
-    transcript_data = ytt_api.fetch(video_id, languages=['ko'])
-
-    return " ".join(snippet.text for snippet in transcript_data.snippets)
-
+    if not PROXY_USERNAME or not PROXY_PASSWORD: 
+        raise ValueError("프록시 정보 없음")
+    
+    # ✅ 1. HTTP 프록시 주소 생성 (400 에러 방지)
+    proxy_url = f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@p.webshare.io:80"
+    
+    # ✅ 2. Generic 모듈 설정 (https 접근 시에도 http 터널 강제)
+    proxy_config = GenericProxyConfig(
+        http_url=proxy_url,
+        https_url=proxy_url 
+    )
+    
+    try:
+        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+        transcript_data = ytt_api.fetch(video_id, languages=['ko'])
+        
+        return " ".join(snippet.text for snippet in transcript_data.snippets)
+        
+    except Exception as e:
+        print(f"\n[자막 실패 - {video_id}]: {type(e).__name__} - {e}")
+        # 🚨 에러를 명시적으로 던져서 retry_action이 즉각 발동하게 함
+        raise e
 async def summarize_text_task(text):
     if not text: return "자막 없음"
     input_text = text[:GPT_INPUT_LIMIT]
