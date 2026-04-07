@@ -178,14 +178,20 @@ def get_all_videos(channel_id, start_date):
 # ==========================================
 # 5~7. 처리 로직 (자막, 요약, 워커)
 # ==========================================
+import random # (파일 맨 위에 import random이 있는지 확인해주세요)
+
 def get_transcript_sync(video_id):
-    if not PROXY_USERNAME or not PROXY_PASSWORD: 
-        raise ValueError("프록시 정보 없음")
+    if not PROXY_PASSWORD: 
+        raise ValueError("프록시 비밀번호 정보 없음")
     
-    # ✅ 1. HTTP 프록시 주소 생성 (400 에러 방지)
-    proxy_url = f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@p.webshare.io:80"
+    # ✅ 핵심: 1번부터 10번까지 아이디 중 하나를 랜덤으로 뽑아서 씁니다.
+    # 이렇게 하면 하나의 IP가 차단당해도, 재시도할 때는 다른 국가/다른 IP로 우회해서 뚫고 들어갑니다.
+    base_username = "xvaydfbw"
+    random_id = f"{base_username}-{random.randint(1, 10)}"
     
-    # ✅ 2. Generic 모듈 설정 (https 접근 시에도 http 터널 강제)
+    # 랜덤 아이디로 프록시 URL 생성
+    proxy_url = f"http://{random_id}:{PROXY_PASSWORD}@p.webshare.io:80"
+    
     proxy_config = GenericProxyConfig(
         http_url=proxy_url,
         https_url=proxy_url 
@@ -198,9 +204,11 @@ def get_transcript_sync(video_id):
         return " ".join(snippet.text for snippet in transcript_data.snippets)
         
     except Exception as e:
-        print(f"\n[자막 실패 - {video_id}]: {type(e).__name__} - {e}")
-        # 🚨 에러를 명시적으로 던져서 retry_action이 즉각 발동하게 함
+        # 에러 메시지 출력 (재시도 시 다른 IP로 시도함)
+        print(f"\n[자막 실패 - {video_id}]: {type(e).__name__}")
         raise e
+
+
 async def summarize_text_task(text):
     if not text: return "자막 없음"
     input_text = text[:GPT_INPUT_LIMIT]
