@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import GenericProxyConfig
 from youtube_transcript_api._errors import IpBlocked
+from collections import deque
+
 
 import openai
 from dotenv import load_dotenv
@@ -40,6 +42,8 @@ semaphore = asyncio.Semaphore(CONCURRENT_LIMIT)
 
 aclient = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
+# 1번부터 10번까지 아이디를 큐(Queue)에 담아둡니다.
+proxy_ids = deque([f"xvaydfbw-{i}" for i in range(1, 11)])
 # ==========================================
 # [공통] 재시도 로직
 # ==========================================
@@ -184,15 +188,14 @@ import random # (파일 맨 위에 import random이 있는지 확인해주세요
 
 def get_transcript_sync(video_id):
     if not PROXY_PASSWORD: 
-        raise ValueError("프록시 비밀번호 정보 없음")
-    
-    # ✅ 핵심: 1번부터 10번까지 아이디 중 하나를 랜덤으로 뽑아서 씁니다.
-    # 이렇게 하면 하나의 IP가 차단당해도, 재시도할 때는 다른 국가/다른 IP로 우회해서 뚫고 들어갑니다.
-    base_username = "xvaydfbw"
-    random_id = f"{base_username}-{random.randint(1, 10)}"
-    
-    # 랜덤 아이디로 프록시 URL 생성
-    proxy_url = f"http://{random_id}:{PROXY_PASSWORD}@p.webshare.io:80"
+        raise ValueError("프록시 비밀번호 없음")
+
+    # ✅ 줄 서 있는 아이디 중 맨 앞의 것을 하나 꺼냅니다.
+    current_id = proxy_ids[0] 
+    # 꺼낸 아이디를 맨 뒤로 보냅니다 (다음 요청 때는 다른 아이디가 맨 앞으로 옴)
+    proxy_ids.rotate(-1) 
+
+    proxy_url = f"http://{current_id}:{PROXY_PASSWORD}@p.webshare.io:80"
     
     proxy_config = GenericProxyConfig(
         http_url=proxy_url,
@@ -205,11 +208,12 @@ def get_transcript_sync(video_id):
         return " ".join(snippet.text for snippet in transcript_data.snippets)
         
     except IpBlocked:
-        # 어떤 아이디가 차단됐는지 출력해서 모니터링하세요.
-        print(f"\n🚫 [IP 차단됨] ID: {random_id} -> 다음 재시도에서 다른 ID를 시도합니다.")
-        raise  # retry_action이 인식하게 던짐
+        # ✅ 만약 차단당했다면? 현재 아이디가 차단됐다고 알리고 에러를 던집니다.
+        # retry_action이 다음 시도를 할 때는 이미 rotate(-1)이 되었으므로 '다음 아이디'를 쓰게 됩니다.
+        print(f"\n🚫 [차단됨] ID: {current_id} -> 다음 재시도에서 다른 ID를 시도합니다.")
+        raise 
     except Exception as e:
-        print(f"\n[기타 실패 - {video_id}]: {type(e).__name__}")
+        print(f"\n[실패 - {video_id}]: {type(e).__name__}")
         raise
 
 
