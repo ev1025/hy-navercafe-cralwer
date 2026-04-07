@@ -179,23 +179,16 @@ def get_all_videos(channel_id, start_date):
 # 5~7. 처리 로직 (자막, 요약, 워커)
 # ==========================================
 def get_transcript_sync(video_id):
-    if not PROXY_USERNAME or not PROXY_PASSWORD: 
-        raise ValueError("프록시 정보 없음")
-    
-    try:
-        # 진우 님의 원래 방식 (최신 버전 완벽 대응 코드)
-        proxy_config = WebshareProxyConfig(proxy_username=PROXY_USERNAME, proxy_password=PROXY_PASSWORD)
-        ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
-        
-        # 자막 수집 (한국어)
-        transcript_data = ytt_api.fetch(video_id, languages=['ko'])
-        
-        return " ".join(snippet.text for snippet in transcript_data.snippets)
-        
-    except Exception as e:
-        # 🚨 원래 코드가 실패했던 '진짜 이유'를 터미널에서 확인하기 위한 코드
-        print(f"\n[자막 에러 - {video_id}]: {type(e).__name__} - {e}")
-        return None
+
+    if not PROXY_USERNAME or not PROXY_PASSWORD: raise ValueError("프록시 정보 없음")
+
+    proxy_config = WebshareProxyConfig(proxy_username=PROXY_USERNAME, proxy_password=PROXY_PASSWORD)
+
+    ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
+
+    transcript_data = ytt_api.fetch(video_id, languages=['ko'])
+
+    return " ".join(snippet.text for snippet in transcript_data.snippets)
 
 async def summarize_text_task(text):
     if not text: return "자막 없음"
