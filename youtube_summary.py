@@ -6,6 +6,8 @@ from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.proxies import GenericProxyConfig
+from youtube_transcript_api._errors import IpBlocked
+
 import openai
 from dotenv import load_dotenv
 # conda activate recent
@@ -33,7 +35,7 @@ TEST_NUM = None # None으로 하면 전체 수집
 
 SHEET_CELL_LIMIT = 45000 
 GPT_INPUT_LIMIT = 100000 
-CONCURRENT_LIMIT = 15 
+CONCURRENT_LIMIT = 2
 semaphore = asyncio.Semaphore(CONCURRENT_LIMIT)
 
 aclient = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -200,13 +202,15 @@ def get_transcript_sync(video_id):
     try:
         ytt_api = YouTubeTranscriptApi(proxy_config=proxy_config)
         transcript_data = ytt_api.fetch(video_id, languages=['ko'])
-        
         return " ".join(snippet.text for snippet in transcript_data.snippets)
         
+    except IpBlocked:
+        # 어떤 아이디가 차단됐는지 출력해서 모니터링하세요.
+        print(f"\n🚫 [IP 차단됨] ID: {random_id} -> 다음 재시도에서 다른 ID를 시도합니다.")
+        raise  # retry_action이 인식하게 던짐
     except Exception as e:
-        # 에러 메시지 출력 (재시도 시 다른 IP로 시도함)
-        print(f"\n[자막 실패 - {video_id}]: {type(e).__name__}")
-        raise e
+        print(f"\n[기타 실패 - {video_id}]: {type(e).__name__}")
+        raise
 
 
 async def summarize_text_task(text):
@@ -224,7 +228,7 @@ async def process_video(video, channel_name, pbar, processed_in_channel, channel
         video_url = f"https://www.youtube.com/watch?v={video['id']}"
         await asyncio.sleep(random.uniform(0.5, 1.5)) 
         
-        script = await retry_action(get_transcript_sync, video['id'], retries=3, delay=60, description=f"[{channel_name}] 자막")
+        script = await retry_action(get_transcript_sync, video['id'], retries=5, delay=15, description=f"[{channel_name}] 자막")
         summary = "요약 불가"
         saved_script = "자막 없음"
         
