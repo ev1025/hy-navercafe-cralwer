@@ -54,8 +54,10 @@ def get_last_date_from_sheet(sheet):
         date_values = sheet.col_values(2)  # B열 (날짜)
         if len(date_values) <= 1:
             return None
-        last_date_str = max(date_values[1:])  # YYYY-MM-DD HH:MM:SS 형식이므로 문자열 비교 가능
-        last_date = datetime.strptime(last_date_str.strip()[:10], "%Y-%m-%d").replace(tzinfo=KST)
+        last_date_str = max(date_values[1:])
+        
+        # [수정됨] [:10]으로 자르지 않고 시간, 분, 초까지 모두 가져와서 파싱합니다.
+        last_date = datetime.strptime(last_date_str.strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
         return last_date
     except Exception as e:
         print(f"[Warning] 마지막 날짜 읽기 실패: {e}")
@@ -71,13 +73,16 @@ if INITIAL_FULL_SCAN:
     END_TS = get_timestamp(2025, 12, 21, 23, 59, 59)
 else:
     last_date = get_last_date_from_sheet(raw_sheet) if raw_sheet else None
+    
     if last_date:
-        next_day = (last_date + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        START_TS = next_day.timestamp()
-        print(f"[Info] 시트 마지막 날짜: {last_date.strftime('%Y-%m-%d')} → {next_day.strftime('%Y-%m-%d')}부터 수집")
+        # [수정됨] 무조건 다음날 0시가 아니라, 마지막으로 수집된 시간 '1초 뒤'부터 이어서 수집합니다.
+        start_dt = last_date + timedelta(seconds=1)
+        START_TS = start_dt.timestamp()
+        print(f"[Info] 시트 마지막 데이터 시간: {last_date.strftime('%Y-%m-%d %H:%M:%S')} → {start_dt.strftime('%Y-%m-%d %H:%M:%S')}부터 수집")
     else:
         yesterday = today_midnight_kst - timedelta(days=1)
         START_TS = yesterday.timestamp()
+        
     END_TS = (today_midnight_kst + timedelta(days=1) - timedelta(seconds=1)).timestamp()
 
 print(f"==================================================")
